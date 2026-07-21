@@ -14,6 +14,8 @@ import re
 
 import pandas as pd
 
+from earnings_nlp.features.groups import GROUP_MASKS
+
 _SENTENCE_SPLIT_PATTERN = re.compile(r"[.!?]+")
 _WORD_PATTERN = re.compile(r"[A-Za-z']+")
 _NUMERIC_TOKEN_PATTERN = re.compile(r"\b\S*\d\S*\b")
@@ -61,18 +63,6 @@ FEATURE_COLUMNS = [
     "first_person_plural_count",
     "numeric_token_count",
 ]
-
-MANAGEMENT_ROLES = {"CEO", "CFO", "Other Management"}
-
-# Category name -> boolean mask over a turn-level dataframe.
-_GROUPS = {
-    "prepared": lambda df: (df["section"] == "prepared") & df["role"].isin(MANAGEMENT_ROLES),
-    "qa_management": lambda df: (df["section"] == "qa") & df["role"].isin(MANAGEMENT_ROLES),
-    "analyst": lambda df: (df["section"] == "qa") & (df["role"] == "Analyst"),
-    "ceo": lambda df: df["role"] == "CEO",
-    "cfo": lambda df: df["role"] == "CFO",
-}
-
 
 def _words(text: str) -> list[str]:
     return _WORD_PATTERN.findall(text.lower())
@@ -154,7 +144,7 @@ def aggregate_call_features(turn_df: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for (ticker, quarter), call_df in turn_df.groupby(["ticker", "quarter"], sort=False):
         row = {"ticker": ticker, "quarter": quarter}
-        for prefix, mask_fn in _GROUPS.items():
+        for prefix, mask_fn in GROUP_MASKS.items():
             row.update(_aggregate_group(call_df, mask_fn(call_df), prefix))
 
         row["qa_length_change"] = (

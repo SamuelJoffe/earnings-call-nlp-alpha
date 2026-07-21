@@ -45,7 +45,7 @@ Transcripts
     ↓
 Speaker and section parsing        <- implemented (Version 0.1)
     ↓
-FinBERT sentiment probabilities    <- not yet implemented
+FinBERT sentiment probabilities    <- implemented (Phase 8)
     ↓
 Divergence and language-change features
     ↓
@@ -82,9 +82,21 @@ very different length, plus two prepared-to-Q&A change features
 (`qa_length_change`, `uncertainty_change`). This establishes the pipeline
 end to end before a large language model is introduced.
 
+`src/earnings_nlp/features/finbert_features.py` then adds
+[FinBERT](https://huggingface.co/ProsusAI/finbert) sentiment. FinBERT's
+position limit is 512 tokens, so `src/earnings_nlp/processing/chunk_text.py`
+splits each turn on actual tokenizer boundaries (not word/character counts)
+into <=510-token chunks first. Each chunk gets a positive/negative/neutral
+probability and a continuous `sentiment_score = positive_probability -
+negative_probability`; chunk scores are aggregated per call into
+`prepared_management_sentiment`, `qa_management_sentiment`,
+`analyst_question_sentiment`, `ceo_sentiment`, `cfo_sentiment`,
+`sentiment_dispersion` (std dev of sentiment_score across all chunks in
+the call), and `negative_chunk_percentage`.
+
 ## 5. Main results
 
-Not applicable yet — no sentiment features, event study, or backtest have
+Not applicable yet — no divergence features, event study, or backtest have
 been run. This section will report only genuine out-of-sample results once
 those phases exist.
 
@@ -155,10 +167,22 @@ call_features = aggregate_call_features(df)
 print(call_features[["ticker", "quarter", "qa_length_change", "uncertainty_change"]])
 ```
 
+Compute Phase 8 FinBERT sentiment features, aggregated per call (downloads
+the ~440MB `ProsusAI/finbert` model on first run):
+
+```python
+from earnings_nlp.features.finbert_features import add_chunk_sentiment, aggregate_call_sentiment
+
+chunk_df = add_chunk_sentiment(df)
+call_sentiment = aggregate_call_sentiment(chunk_df)
+print(call_sentiment)
+```
+
 ### Run tests
 
 ```
-pytest
+pytest                      # full suite, ~15s (downloads FinBERT on first run)
+pytest -m "not integration" # skip the one test that loads the real model
 ```
 
 ## 9. Repository structure
@@ -181,7 +205,8 @@ scripts/             End-to-end pipeline/backtest entry points (later phases)
 - [x] Phase 5–6 (Version 0.1): download 4 milestone transcripts, parse into
       a labeled dataframe, descriptive stats, parser test
 - [x] Phase 7: interpretable linguistic features
-- [ ] Phase 8–9: FinBERT sentiment + divergence features
+- [x] Phase 8: FinBERT sentiment
+- [ ] Phase 9: divergence features
 - [ ] Phase 10–11: event returns + event study
 - [ ] Phase 12–13: predictive modelling + backtest
 - [ ] Phase 14–15: robustness tests + final presentation

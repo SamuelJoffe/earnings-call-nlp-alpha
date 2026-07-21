@@ -14,3 +14,6 @@ where = ["src"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+markers = [
+    "integration: slower tests that load the real FinBERT model (deselect with -m 'not integration')",
+]
