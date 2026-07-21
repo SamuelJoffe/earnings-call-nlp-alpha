@@ -1,0 +1,46 @@
+# Project configuration.
+# Version 0.1 only uses `milestone_calls`. The full `universe` list and later
+# settings are here so later phases don't require restructuring this file.
+
+data_source:
+  provider: alpha_vantage
+  base_url: "https://www.alphavantage.co/query"
+  function: "EARNINGS_CALL_TRANSCRIPT"
+  request_sleep_seconds: 15 # free tier: 5 requests/minute
+
+# First coding milestone (Phase 5 of the project plan): get the pipeline
+# working end to end on four calls before downloading the full universe.
+milestone_calls:
+  - ticker: AAPL
+    quarter: 2024Q1
+  - ticker: AAPL
+    quarter: 2024Q2
+  - ticker: MSFT
+    quarter: 2024Q1
+  - ticker: MSFT
+    quarter: 2024Q2
+
+# Full initial universe (Phase 4). Not used until later versions.
+universe:
+  tickers:
+    - AAPL
+    - MSFT
+    - GOOGL
+    - AMZN
+    - META
+    - NVDA
+    - JPM
+    - BAC
+    - GS
+    - V
+    - WMT
+    - COST
+    - KO
+    - DIS
+    - NFLX
+    - XOM
+    - CVX
+    - JNJ
+    - UNH
+    - CAT
+  quarters_per_company: 8

@@ -216,3 +216,24 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- Project-specific ---
+
+# Secrets
+*.key
+
+# Data
+data/raw/*
+data/interim/*
+data/processed/*
+
+# Preserve data documentation
+!data/README.md
+
+# Model caches (root-level only; src/earnings_nlp/models/ is source code)
+.cache/
+/models/
+
+# Operating system
+.DS_Store
+Thumbs.db
