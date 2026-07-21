@@ -6,8 +6,10 @@ positive/negative/neutral probability, and a continuous
 `sentiment_score = positive_probability - negative_probability` is derived
 per chunk. Chunk-level scores are then aggregated per call into the same
 prepared/qa_management/analyst/ceo/cfo groups used for the Phase 7
-linguistic features, plus two whole-call features: sentiment_dispersion
-and negative_chunk_percentage.
+linguistic features, plus whole-call features: overall_sentiment,
+sentiment_dispersion, negative_chunk_percentage, and
+qa_negative_probability (mean negative_probability across the whole Q&A
+section, both management and analyst turns).
 """
 
 from __future__ import annotations
@@ -88,12 +90,20 @@ def aggregate_call_sentiment(chunk_df: pd.DataFrame) -> pd.DataFrame:
             feature_name = f"{_FEATURE_NAME[prefix]}_sentiment"
             row[feature_name] = subset["sentiment_score"].mean() if len(subset) else float("nan")
 
+        qa_df = call_df[call_df["section"] == "qa"]
+
         if len(call_df):
+            row["overall_sentiment"] = call_df["sentiment_score"].mean()
             row["sentiment_dispersion"] = call_df["sentiment_score"].std(ddof=0)
             row["negative_chunk_percentage"] = 100 * (call_df["predicted_label"] == "negative").mean()
         else:
+            row["overall_sentiment"] = float("nan")
             row["sentiment_dispersion"] = float("nan")
             row["negative_chunk_percentage"] = float("nan")
+
+        row["qa_negative_probability"] = (
+            qa_df["negative_probability"].mean() if len(qa_df) else float("nan")
+        )
 
         rows.append(row)
 

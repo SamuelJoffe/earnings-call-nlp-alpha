@@ -3,6 +3,11 @@ import math
 import pandas as pd
 import pytest
 
+from earnings_nlp.features.change_features import (
+    add_divergence_features,
+    add_quarterly_change_features,
+    build_divergence_table,
+)
 from earnings_nlp.features.finbert_features import (
     add_chunk_sentiment,
     aggregate_call_sentiment,
@@ -202,15 +207,15 @@ def test_add_chunk_sentiment_one_row_per_chunk(monkeypatch):
 def chunk_df():
     rows = [
         dict(ticker="AAPL", quarter="2024Q1", role="CEO", section="prepared",
-             sentiment_score=0.8, predicted_label="positive"),
+             sentiment_score=0.8, predicted_label="positive", negative_probability=0.1),
         dict(ticker="AAPL", quarter="2024Q1", role="CFO", section="prepared",
-             sentiment_score=0.6, predicted_label="positive"),
+             sentiment_score=0.6, predicted_label="positive", negative_probability=0.2),
         dict(ticker="AAPL", quarter="2024Q1", role="Analyst", section="qa",
-             sentiment_score=-0.2, predicted_label="negative"),
+             sentiment_score=-0.2, predicted_label="negative", negative_probability=0.6),
         dict(ticker="AAPL", quarter="2024Q1", role="CFO", section="qa",
-             sentiment_score=-0.4, predicted_label="negative"),
+             sentiment_score=-0.4, predicted_label="negative", negative_probability=0.7),
         dict(ticker="AAPL", quarter="2024Q1", role="CFO", section="qa",
-             sentiment_score=0.0, predicted_label="neutral"),
+             sentiment_score=0.0, predicted_label="neutral", negative_probability=0.3),
     ]
     return pd.DataFrame(rows)
 
@@ -235,6 +240,14 @@ def test_aggregate_call_sentiment_dispersion_and_negative_percentage(chunk_df):
     assert row["negative_chunk_percentage"] == pytest.approx(100 * 2 / 5)
 
 
+def test_aggregate_call_sentiment_overall_and_qa_negative_probability(chunk_df):
+    out = aggregate_call_sentiment(chunk_df)
+    row = out.iloc[0]
+
+    assert row["overall_sentiment"] == pytest.approx((0.8 + 0.6 - 0.2 - 0.4 + 0.0) / 5)
+    assert row["qa_negative_probability"] == pytest.approx((0.6 + 0.7 + 0.3) / 3)
+
+
 @pytest.mark.integration
 def test_finbert_real_model_scores_clear_polarity_correctly():
     """One slow real-model smoke test (not mocked) to confirm the actual
@@ -247,3 +260,110 @@ def test_finbert_real_model_scores_clear_polarity_correctly():
     )
     assert scored[0]["positive_probability"] > scored[0]["negative_probability"]
     assert scored[1]["negative_probability"] > scored[1]["positive_probability"]
+
+
+# --- Phase 9: divergence features ---------------------------------------
+
+
+@pytest.fixture
+def sentiment_df():
+    # AAPL: prepared more positive than qa (script polish fades under
+    # questioning). MSFT: qa more positive than prepared (tone improved).
+    return pd.DataFrame(
+        [
+            dict(ticker="AAPL", quarter="2024Q1", prepared_management_sentiment=0.6,
+                 qa_management_sentiment=0.1, analyst_question_sentiment=0.3,
+                 ceo_sentiment=0.5, cfo_sentiment=0.2,
+                 overall_sentiment=0.3, qa_negative_probability=0.2),
+            dict(ticker="MSFT", quarter="2024Q1", prepared_management_sentiment=0.2,
+                 qa_management_sentiment=0.5, analyst_question_sentiment=0.1,
+                 ceo_sentiment=0.4, cfo_sentiment=0.4,
+                 overall_sentiment=0.25, qa_negative_probability=0.4),
+        ]
+    )
+
+
+def test_management_qa_divergence_sign_matches_interpretation(sentiment_df):
+    out = add_divergence_features(sentiment_df)
+    aapl = out[out["ticker"] == "AAPL"].iloc[0]
+    msft = out[out["ticker"] == "MSFT"].iloc[0]
+
+    # AAPL's script was more positive than its Q&A -> positive divergence
+    assert aapl["management_qa_divergence"] == pytest.approx(0.6 - 0.1)
+    assert aapl["management_qa_divergence"] > 0
+    # MSFT became more positive during Q&A than its script -> negative divergence
+    assert msft["management_qa_divergence"] == pytest.approx(0.2 - 0.5)
+    assert msft["management_qa_divergence"] < 0
+
+
+def test_analyst_management_gap_and_ceo_cfo_gap(sentiment_df):
+    out = add_divergence_features(sentiment_df)
+    aapl = out[out["ticker"] == "AAPL"].iloc[0]
+
+    assert aapl["analyst_management_gap"] == pytest.approx(0.1 - 0.3)
+    assert aapl["ceo_cfo_gap"] == pytest.approx(0.5 - 0.2)
+
+
+def test_quarterly_change_features_first_quarter_is_nan():
+    df = pd.DataFrame(
+        [
+            dict(ticker="AAPL", quarter="2024Q1", overall_sentiment=0.3, qa_negative_probability=0.2),
+        ]
+    )
+    out = add_quarterly_change_features(df)
+    assert math.isnan(out.iloc[0]["quarterly_sentiment_change"])
+    assert math.isnan(out.iloc[0]["qa_negativity_change"])
+
+
+def test_quarterly_change_features_orders_chronologically_regardless_of_input_order():
+    # Q2 row appears BEFORE Q1 row in the input to make sure sorting isn't
+    # accidentally relying on input order.
+    df = pd.DataFrame(
+        [
+            dict(ticker="AAPL", quarter="2024Q2", overall_sentiment=0.1, qa_negative_probability=0.5),
+            dict(ticker="AAPL", quarter="2024Q1", overall_sentiment=0.4, qa_negative_probability=0.2),
+        ]
+    )
+    out = add_quarterly_change_features(df)
+
+    q1_row = out[out["quarter"] == "2024Q1"].iloc[0]
+    q2_row = out[out["quarter"] == "2024Q2"].iloc[0]
+
+    assert math.isnan(q1_row["quarterly_sentiment_change"])
+    assert q2_row["quarterly_sentiment_change"] == pytest.approx(0.1 - 0.4)
+    assert q2_row["qa_negativity_change"] == pytest.approx(0.5 - 0.2)
+
+
+def test_quarterly_change_features_does_not_mix_tickers():
+    df = pd.DataFrame(
+        [
+            dict(ticker="AAPL", quarter="2024Q1", overall_sentiment=0.3, qa_negative_probability=0.2),
+            dict(ticker="MSFT", quarter="2024Q2", overall_sentiment=0.9, qa_negative_probability=0.9),
+        ]
+    )
+    out = add_quarterly_change_features(df)
+    # neither ticker has a second quarter for its own series, so both are NaN
+    assert out["quarterly_sentiment_change"].isna().all()
+
+
+def test_quarter_sort_key_rejects_malformed_quarter():
+    with pytest.raises(ValueError):
+        add_quarterly_change_features(
+            pd.DataFrame([dict(ticker="AAPL", quarter="not-a-quarter",
+                                overall_sentiment=0.1, qa_negative_probability=0.1)])
+        )
+
+
+def test_build_divergence_table_includes_aliases_and_change_features(sentiment_df):
+    out = build_divergence_table(sentiment_df)
+
+    assert (out["prepared_sentiment"] == out["prepared_management_sentiment"]).all()
+    assert (out["qa_sentiment"] == out["qa_management_sentiment"]).all()
+    for col in [
+        "management_qa_divergence",
+        "analyst_management_gap",
+        "ceo_cfo_gap",
+        "quarterly_sentiment_change",
+        "qa_negativity_change",
+    ]:
+        assert col in out.columns

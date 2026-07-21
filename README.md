@@ -47,7 +47,7 @@ Speaker and section parsing        <- implemented (Version 0.1)
     ↓
 FinBERT sentiment probabilities    <- implemented (Phase 8)
     ↓
-Divergence and language-change features
+Divergence and language-change features  <- implemented (Phase 9)
     ↓
 Event-return construction
     ↓
@@ -91,14 +91,39 @@ probability and a continuous `sentiment_score = positive_probability -
 negative_probability`; chunk scores are aggregated per call into
 `prepared_management_sentiment`, `qa_management_sentiment`,
 `analyst_question_sentiment`, `ceo_sentiment`, `cfo_sentiment`,
-`sentiment_dispersion` (std dev of sentiment_score across all chunks in
-the call), and `negative_chunk_percentage`.
+`overall_sentiment`, `sentiment_dispersion` (std dev of sentiment_score
+across all chunks in the call), `negative_chunk_percentage`, and
+`qa_negative_probability` (mean negative probability across the whole
+Q&A section).
+
+`src/earnings_nlp/features/change_features.py` combines those per-call
+sentiment features into the signature research features:
+
+- **`management_qa_divergence`** = `prepared_management_sentiment -
+  qa_management_sentiment` — the core hypothesis variable. Positive means
+  management sounded more upbeat in its script than under questioning;
+  near zero means consistent tone; negative means tone improved during
+  Q&A.
+- **`analyst_management_gap`** = `qa_management_sentiment -
+  analyst_question_sentiment` — how much more/less positive management's
+  answers are than the questions being asked.
+- **`ceo_cfo_gap`** = `ceo_sentiment - cfo_sentiment`.
+- **`quarterly_sentiment_change`** = each ticker's `overall_sentiment`
+  minus its own previous quarter's (NaN for a ticker's first available
+  quarter).
+- **`qa_negativity_change`** = each ticker's `qa_negative_probability`
+  minus its own previous quarter's.
+
+`build_divergence_table()` also adds `prepared_sentiment`/`qa_sentiment`
+aliases matching the final research table's column names from the
+project plan.
 
 ## 5. Main results
 
-Not applicable yet — no divergence features, event study, or backtest have
-been run. This section will report only genuine out-of-sample results once
-those phases exist.
+Not applicable yet — divergence features are computed (Phase 9), but no
+event study or backtest has been run against returns, and the sample is
+only 4 calls. This section will report only genuine out-of-sample results
+once those phases exist.
 
 ## 6. Visualizations
 
@@ -178,6 +203,15 @@ call_sentiment = aggregate_call_sentiment(chunk_df)
 print(call_sentiment)
 ```
 
+Compute the Phase 9 divergence features:
+
+```python
+from earnings_nlp.features.change_features import build_divergence_table
+
+divergence = build_divergence_table(call_sentiment)
+print(divergence[["ticker", "quarter", "management_qa_divergence", "analyst_management_gap", "ceo_cfo_gap"]])
+```
+
 ### Run tests
 
 ```
@@ -206,7 +240,7 @@ scripts/             End-to-end pipeline/backtest entry points (later phases)
       a labeled dataframe, descriptive stats, parser test
 - [x] Phase 7: interpretable linguistic features
 - [x] Phase 8: FinBERT sentiment
-- [ ] Phase 9: divergence features
+- [x] Phase 9: divergence features
 - [ ] Phase 10–11: event returns + event study
 - [ ] Phase 12–13: predictive modelling + backtest
 - [ ] Phase 14–15: robustness tests + final presentation
