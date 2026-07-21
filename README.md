@@ -70,6 +70,18 @@ dropped. Punctuation, hedging language, and sentence structure are left
 untouched, since they may carry signal for later sentiment/linguistic
 features.
 
+Before FinBERT, `src/earnings_nlp/features/linguistic_features.py`
+computes a simple interpretable baseline per turn (word count, average
+sentence length, question count, positive/negative/uncertainty word
+counts, first-person-plural count, numeric token count), using a small
+hand-curated lexicon inspired by the Loughran-McDonald financial-sentiment
+categories. These are aggregated per call into five groups — prepared
+remarks, management Q&A answers, analyst questions, CEO speech, CFO
+speech — as rates per 100 words so they're comparable across sections of
+very different length, plus two prepared-to-Q&A change features
+(`qa_length_change`, `uncertainty_change`). This establishes the pipeline
+end to end before a large language model is introduced.
+
 ## 5. Main results
 
 Not applicable yet — no sentiment features, event study, or backtest have
@@ -102,6 +114,7 @@ Requires Python 3.11+ (developed against 3.12).
 python -m venv .venv
 .venv\Scripts\activate        # Windows
 pip install -r requirements.txt
+pip install -e . --no-deps    # makes `earnings_nlp` importable
 ```
 
 Copy `.env.example` to `.env` and fill in an
@@ -133,6 +146,15 @@ print(df.groupby(["ticker", "quarter"]).size())
 print(df["role"].value_counts())
 ```
 
+Compute the Phase 7 baseline linguistic features, aggregated per call:
+
+```python
+from earnings_nlp.features.linguistic_features import aggregate_call_features
+
+call_features = aggregate_call_features(df)
+print(call_features[["ticker", "quarter", "qa_length_change", "uncertainty_change"]])
+```
+
 ### Run tests
 
 ```
@@ -158,7 +180,7 @@ scripts/             End-to-end pipeline/backtest entry points (later phases)
 - [x] Phase 3: Python environment
 - [x] Phase 5–6 (Version 0.1): download 4 milestone transcripts, parse into
       a labeled dataframe, descriptive stats, parser test
-- [ ] Phase 7: interpretable linguistic features
+- [x] Phase 7: interpretable linguistic features
 - [ ] Phase 8–9: FinBERT sentiment + divergence features
 - [ ] Phase 10–11: event returns + event study
 - [ ] Phase 12–13: predictive modelling + backtest
