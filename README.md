@@ -60,6 +60,8 @@ Divergence and language-change features  <- implemented (Phase 9)
     ↓
 Event-return construction          <- implemented (Phase 10)
     ↓
+Event study (quintile sort)        <- implemented (Phase 11), not yet run for real (see below)
+    ↓
 Walk-forward modelling
     ↓
 Long-short portfolio
@@ -151,20 +153,46 @@ price series covering all three timing branches, including a case where
 the call falls on a Friday to confirm the "next trading day" rule
 correctly skips the weekend rather than naively adding one calendar day.
 
+`src/earnings_nlp/backtest/event_study.py` tests `management_qa_divergence`
+directly against forward abnormal returns, before any predictive model:
+sort calls into divergence quintiles (Q1 = lowest, Q5 = highest), compare
+mean/median abnormal return by quintile, check whether the relationship is
+monotonic, compute the long-Q1/short-Q5 spread, check whether it survives
+winsorizing extreme returns, and break results out by an arbitrary group
+column (sector, year, ...). **It refuses to form quintiles from fewer than
+5 calls** rather than silently reporting a 2- or 3-group split as if it
+were a real quintile sort — see [Main results](#5-main-results).
+
 ## 5. Main results
 
-Not applicable yet — event returns are computed (Phase 10), but no formal
-event study or backtest has been run, and the sample is only 4 calls. This
-section will report only genuine out-of-sample results once those phases
-exist. (For what it's worth: on this n=4 sample, MSFT's 2024 fiscal-Q1
-call — 2023-10-24 — shows a -3.75% next-day abnormal return, consistent
-with the well-known market reaction to that call's cloud-growth
-commentary; that's a sanity check that the pipeline is wired correctly,
-not a research finding.)
+Not applicable yet, and this is the phase where the Version 0.1 sample
+size (n=4) actually bites: a quintile event study needs at least 5 calls,
+and a meaningful one needs dozens per bucket to separate signal from
+noise. `assign_divergence_quintiles()` correctly raises rather than
+faking a smaller split on the 4 milestone calls (see
+`notebooks/04_event_study.ipynb`). The quintile/monotonicity/spread logic
+itself is validated against a 30-observation synthetic sample with a known
+planted relationship (`tests/test_event_study.py`), so the code is ready
+to run for real once Phase 4's full universe (20 companies x 8 quarters)
+is downloaded.
+
+What n=4 *can* show — not a finding, just what's currently computable —
+is a plain correlation between `management_qa_divergence` and
+`abnormal_return_5d` of 0.34, and the underlying scatter in
+`reports/figures/divergence_vs_abnormal_return_5d.png`. (Also, MSFT's 2024
+fiscal-Q1 call — 2023-10-24 — shows a -3.75% next-day abnormal return,
+consistent with the well-known market reaction to that call's
+cloud-growth commentary; that's a pipeline sanity check, not a finding.)
 
 ## 6. Visualizations
 
-None yet.
+- `reports/figures/divergence_vs_abnormal_return_5d.png` — scatter of
+  `management_qa_divergence` against `abnormal_return_5d` for the 4
+  milestone calls.
+- `reports/figures/divergence_distribution.png` — histogram of
+  `management_qa_divergence` across the 4 milestone calls.
+
+Both are illustrative at n=4, not yet evidence of anything.
 
 ## 7. Limitations
 
@@ -187,9 +215,12 @@ None yet.
   before-open, 16:00 for after-close, observed consistently across
   tickers), which is itself an approximation of the actual release
   time, not a verified timestamp.
-- Sample size, survivorship bias, and transaction costs are not yet
-  relevant at this stage but will be documented here as later phases are
-  added.
+- **Sample size**: the Version 0.1 milestone has only 4 calls, too few for
+  a meaningful quintile event study (see [Main results](#5-main-results)).
+  Any correlation reported at this stage is a pipeline sanity check, not
+  evidence.
+- Survivorship bias and transaction costs are not yet relevant at this
+  stage but will be documented here as later phases are added.
 
 ## 8. Reproduction instructions
 
@@ -282,6 +313,20 @@ event_returns = build_event_return_table(calls, prices_by_ticker, benchmark_pric
 print(event_returns)
 ```
 
+Run the Phase 11 event study: open `notebooks/04_event_study.ipynb`, which
+merges divergence + event returns, shows what a correlation/scatter can
+say at n=4, and demonstrates that quintile assignment correctly refuses
+to run below 5 calls. Or in Python:
+
+```python
+from earnings_nlp.backtest.event_study import plot_divergence_scatter, assign_divergence_quintiles
+
+research_table = divergence.merge(event_returns, on=["ticker", "quarter"])
+plot_divergence_scatter(research_table, "management_qa_divergence", "abnormal_return_5d")
+
+assign_divergence_quintiles(research_table)  # raises ValueError at n=4 -- expected
+```
+
 ### Run tests
 
 ```
@@ -298,7 +343,7 @@ notebooks/           Exploration notebooks, numbered by pipeline stage
 src/earnings_nlp/    Installable package: data download, processing,
                      features, models, backtest, shared utils
 tests/               Unit tests
-reports/             Figures and the final write-up (later phases)
+reports/             Figures (see reports/figures/) and the final write-up (later phases)
 scripts/             End-to-end pipeline/backtest entry points (later phases)
 ```
 
@@ -312,6 +357,8 @@ scripts/             End-to-end pipeline/backtest entry points (later phases)
 - [x] Phase 8: FinBERT sentiment
 - [x] Phase 9: divergence features
 - [x] Phase 10: prices + event returns
-- [ ] Phase 11: event study
+- [x] Phase 11: event study code (quintile/monotonicity/spread logic
+      validated on synthetic data; not yet run for real -- needs Phase 4's
+      full universe, since n=4 can't support 5 quintiles)
 - [ ] Phase 12–13: predictive modelling + backtest
 - [ ] Phase 14–15: robustness tests + final presentation
