@@ -12,6 +12,8 @@ DATA_PROCESSED = DATA_DIR / "processed"
 TRANSCRIPTS_RAW = DATA_RAW / "transcripts"
 DOWNLOAD_LOG = TRANSCRIPTS_RAW / "download_log.csv"
 
+PRICES_RAW = DATA_RAW / "prices"
+
 CONFIG_DIR = ROOT / "config"
 REPORTS_DIR = ROOT / "reports"
 FIGURES_DIR = REPORTS_DIR / "figures"

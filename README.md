@@ -10,8 +10,9 @@ This project tests whether a shift in management's tone between the
 returns. It combines earnings call transcripts, FinBERT sentiment scoring,
 event-study analysis, and a walk-forward long-short backtest.
 
-**Status: Version 0.1.** Only transcript download and parsing are
-implemented so far — see [Roadmap](#roadmap--current-status) below.
+**Status: in progress, past Version 0.1.** Transcript parsing, linguistic
+and FinBERT sentiment features, divergence features, and event returns are
+implemented — see [Roadmap](#roadmap--current-status) below.
 
 ## 2. Research hypothesis
 
@@ -25,10 +26,18 @@ of it showing up in subsequent guidance or results.
 
 - **Transcripts**: [Alpha Vantage `EARNINGS_CALL_TRANSCRIPT`](https://www.alphavantage.co/documentation/#earnings-call-transcript)
   endpoint, requested per `(ticker, quarter)` pair and cached locally as JSON.
-- **Prices**: not yet integrated (planned: daily adjusted close via
-  `yfinance`, plus a market/sector benchmark).
+- **Prices**: daily adjusted close via `yfinance`, for each call's ticker
+  plus SPY as the market benchmark.
 - **Current coverage (Version 0.1 milestone)**: 4 calls —
   AAPL 2024Q1, AAPL 2024Q2, MSFT 2024Q1, MSFT 2024Q2.
+- **Earnings dates/timing**: Alpha Vantage's transcript response doesn't
+  include a call date (only `{symbol, quarter, transcript}`), so the 4
+  milestone calls' real calendar dates and before/during/after-market
+  timing are curated in `config/config.yaml` from `yfinance`'s
+  `Ticker.get_earnings_dates()`, cross-checked against each transcript's
+  own reported EPS figure (e.g. AAPL 2024Q1's transcript says "EPS was
+  $2.18", matching the 2024-02-01 row exactly). This doesn't scale to the
+  full universe yet — see [Limitations](#7-limitations).
 - **Planned initial universe**: 20 large-cap US companies across sectors,
   8 quarters each (~160 calls) — see `config/config.yaml`.
 
@@ -49,7 +58,7 @@ FinBERT sentiment probabilities    <- implemented (Phase 8)
     ↓
 Divergence and language-change features  <- implemented (Phase 9)
     ↓
-Event-return construction
+Event-return construction          <- implemented (Phase 10)
     ↓
 Walk-forward modelling
     ↓
@@ -118,12 +127,40 @@ sentiment features into the signature research features:
 aliases matching the final research table's column names from the
 project plan.
 
+`src/earnings_nlp/data/download_prices.py` and
+`src/earnings_nlp/backtest/event_returns.py` then bring in market data.
+For each call:
+
+```
+R_{i,t->t+k}  = P_{i,t+k} / P_{i,t} - 1
+AR_{i,t->t+k} = R_{i,t->t+k} - R_{m,t->t+k}
+```
+
+evaluated at k = 1, 5, and 20 trading days, where `m` is the SPY
+benchmark. The **signal-entry date** `t` — which close can first possibly
+reflect the call's information — depends on when the call happened:
+
+- **after_close**: that day's close already happened before the call, so
+  it can't reflect it. `t` = the *next* trading day's close.
+- **before_open** / **during_hours**: the regular session that day already
+  had the chance to react. `t` = that same day's close.
+
+All 4 milestone calls happen to be `after_close` (true for both AAPL and
+MSFT historically), so `event_returns.py` is tested against synthetic
+price series covering all three timing branches, including a case where
+the call falls on a Friday to confirm the "next trading day" rule
+correctly skips the weekend rather than naively adding one calendar day.
+
 ## 5. Main results
 
-Not applicable yet — divergence features are computed (Phase 9), but no
-event study or backtest has been run against returns, and the sample is
-only 4 calls. This section will report only genuine out-of-sample results
-once those phases exist.
+Not applicable yet — event returns are computed (Phase 10), but no formal
+event study or backtest has been run, and the sample is only 4 calls. This
+section will report only genuine out-of-sample results once those phases
+exist. (For what it's worth: on this n=4 sample, MSFT's 2024 fiscal-Q1
+call — 2023-10-24 — shows a -3.75% next-day abnormal return, consistent
+with the well-known market reaction to that call's cloud-growth
+commentary; that's a sanity check that the pipeline is wired correctly,
+not a research finding.)
 
 ## 6. Visualizations
 
@@ -137,9 +174,22 @@ None yet.
 - **Section-boundary heuristic**: the prepared/Q&A split is inferred from
   operator language, not an explicit field in the source data, and should
   be spot-checked on a sample of calls before trusting downstream results.
-- Sample size, execution timing, survivorship bias, and transaction costs
-  are not yet relevant at this stage but will be documented here as later
-  phases are added.
+- **Earnings date/timing is manually curated, not automated**: Alpha
+  Vantage doesn't return a call date, so the 4 milestone calls' dates and
+  before/during/after-market timing were sourced from `yfinance` and
+  hand-verified against each transcript's reported EPS. Scaling to the
+  full universe (Phase 4) will need this automated — matching
+  `yfinance.Ticker.get_earnings_dates()` rows to Alpha Vantage's
+  fiscal-quarter labels programmatically, which isn't always a 1:1
+  calendar-quarter mapping.
+- **Execution timing is approximate**: the before/during/after-market
+  bucketing relies on `yfinance`'s reported release time (06:00 for
+  before-open, 16:00 for after-close, observed consistently across
+  tickers), which is itself an approximation of the actual release
+  time, not a verified timestamp.
+- Sample size, survivorship bias, and transaction costs are not yet
+  relevant at this stage but will be documented here as later phases are
+  added.
 
 ## 8. Reproduction instructions
 
@@ -212,6 +262,26 @@ divergence = build_divergence_table(call_sentiment)
 print(divergence[["ticker", "quarter", "management_qa_divergence", "analyst_management_gap", "ceo_cfo_gap"]])
 ```
 
+Download prices (each call's ticker plus SPY) and compute forward/abnormal
+event returns at 1/5/20 trading days:
+
+```
+python -m earnings_nlp.data.download_prices
+```
+
+```python
+from earnings_nlp.backtest.event_returns import load_price_series, build_event_return_table
+from earnings_nlp.data.download_transcripts import load_config
+
+config = load_config()
+calls = config["milestone_calls"]
+prices_by_ticker = {c["ticker"]: load_price_series(c["ticker"]) for c in calls}
+benchmark_prices = load_price_series(config["price_source"]["benchmark_ticker"])
+
+event_returns = build_event_return_table(calls, prices_by_ticker, benchmark_prices)
+print(event_returns)
+```
+
 ### Run tests
 
 ```
@@ -241,6 +311,7 @@ scripts/             End-to-end pipeline/backtest entry points (later phases)
 - [x] Phase 7: interpretable linguistic features
 - [x] Phase 8: FinBERT sentiment
 - [x] Phase 9: divergence features
-- [ ] Phase 10–11: event returns + event study
+- [x] Phase 10: prices + event returns
+- [ ] Phase 11: event study
 - [ ] Phase 12–13: predictive modelling + backtest
 - [ ] Phase 14–15: robustness tests + final presentation

@@ -8,17 +8,38 @@ data_source:
   function: "EARNINGS_CALL_TRANSCRIPT"
   request_sleep_seconds: 15 # free tier: 5 requests/minute
 
+price_source:
+  provider: yfinance
+  benchmark_ticker: SPY # S&P 500 ETF, used as the market-adjusted-return benchmark
+
 # First coding milestone (Phase 5 of the project plan): get the pipeline
 # working end to end on four calls before downloading the full universe.
+#
+# earnings_date/timing are NOT in the Alpha Vantage transcript response (it
+# only returns {symbol, quarter, transcript}), so they're sourced here from
+# yfinance's Ticker.get_earnings_dates() and cross-checked against each
+# transcript's own reported EPS figure (e.g. AAPL 2024Q1's transcript says
+# "EPS was $2.18", which matches the 2024-02-01 row exactly).
+# timing is one of: before_open, during_hours, after_close -- yfinance
+# reports 06:00 local time for before-open calls and 16:00 for after-close
+# calls, which is what these are derived from.
 milestone_calls:
   - ticker: AAPL
     quarter: 2024Q1
+    earnings_date: "2024-02-01"
+    timing: after_close
   - ticker: AAPL
     quarter: 2024Q2
+    earnings_date: "2024-05-02"
+    timing: after_close
   - ticker: MSFT
     quarter: 2024Q1
+    earnings_date: "2023-10-24"
+    timing: after_close
   - ticker: MSFT
     quarter: 2024Q2
+    earnings_date: "2024-01-30"
+    timing: after_close
 
 # Full initial universe (Phase 4). Not used until later versions.
 universe:
